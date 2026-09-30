@@ -1,26 +1,90 @@
 import "server-only";
 
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, exists, notExists, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { Platform } from "@/db/schema";
 
-const { accounts, achievements, games } = schema;
+const { accounts, achievements, categories, gameCategories, games } = schema;
 
 export const SORTS = ["playtime", "recent", "completion", "name"] as const;
 export type Sort = (typeof SORTS)[number];
 
+/** A category id, or "none" for games without any category. */
+export type CategoryFilter = number | "none";
+
 export type LibraryFilter = {
   q?: string;
   platform?: Platform;
+  category?: CategoryFilter;
   sort: Sort;
 };
 
 const collator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
 
-export function listGames({ q, platform, sort }: LibraryFilter) {
+function categoryCondition(category: CategoryFilter) {
+  const db = getDb();
+  if (category === "none") {
+    return notExists(
+      db.select().from(gameCategories).where(eq(gameCategories.gameId, games.id)),
+    );
+  }
+  return exists(
+    db
+      .select()
+      .from(gameCategories)
+      .where(and(eq(gameCategories.gameId, games.id), eq(gameCategories.categoryId, category))),
+  );
+}
+
+export function listCategories() {
+  return getDb()
+    .select({
+      id: categories.id,
+      name: categories.name,
+      gameCount: sql<number>`count(${gameCategories.gameId})`,
+    })
+    .from(categories)
+    .leftJoin(gameCategories, eq(gameCategories.categoryId, categories.id))
+    .groupBy(categories.id)
+    .orderBy(asc(categories.createdAt), asc(categories.id))
+    .all();
+}
+export type CategoryWithCount = ReturnType<typeof listCategories>[number];
+
+export function countUncategorizedGames(): number {
+  return (
+    getDb()
+      .select({ count: sql<number>`count(*)` })
+      .from(games)
+      .where(categoryCondition("none"))
+      .get()?.count ?? 0
+  );
+}
+
+function categoryIdsByGame(): Map<number, number[]> {
+  const map = new Map<number, number[]>();
+  for (const row of getDb().select().from(gameCategories).all()) {
+    const list = map.get(row.gameId);
+    if (list) list.push(row.categoryId);
+    else map.set(row.gameId, [row.categoryId]);
+  }
+  return map;
+}
+
+export function getGameCategoryIds(gameId: number): number[] {
+  return getDb()
+    .select({ categoryId: gameCategories.categoryId })
+    .from(gameCategories)
+    .where(eq(gameCategories.gameId, gameId))
+    .all()
+    .map((r) => r.categoryId);
+}
+
+export function listGames({ q, platform, category, sort }: LibraryFilter) {
   const where = and(
     platform ? eq(games.platform, platform) : undefined,
     q ? sql`instr(lower(${games.title}), lower(${q})) > 0` : undefined,
+    category !== undefined ? categoryCondition(category) : undefined,
   );
   const rows = getDb()
     .select({
@@ -39,6 +103,9 @@ export function listGames({ q, platform, sort }: LibraryFilter) {
     .where(where)
     .all();
 
+  const assigned = categoryIdsByGame();
+  const withCategories = rows.map((g) => ({ ...g, categoryIds: assigned.get(g.id) ?? [] }));
+
   const ratio = (g: (typeof rows)[number]) =>
     g.achievementsTotal > 0 ? g.achievementsUnlocked / g.achievementsTotal : -1;
 
@@ -49,7 +116,7 @@ export function listGames({ q, platform, sort }: LibraryFilter) {
     name: () => 0,
   };
 
-  return rows.sort((a, b) => compare[sort](a, b) || collator.compare(a.title, b.title));
+  return withCategories.sort((a, b) => compare[sort](a, b) || collator.compare(a.title, b.title));
 }
 export type LibraryGame = ReturnType<typeof listGames>[number];
 

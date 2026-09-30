@@ -4,7 +4,7 @@ import { GameGrid, GameList } from "@/components/library/game-grid";
 import { Button } from "@/components/ui/button";
 import { PLATFORMS, type Platform } from "@/db/schema";
 import { formatHours } from "@/lib/format";
-import { listGames, SORTS, type Sort } from "@/lib/queries";
+import { type CategoryFilter, listCategories, listGames, SORTS, type Sort } from "@/lib/queries";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -14,16 +14,23 @@ function pick<T extends string>(value: unknown, allowed: readonly T[]): T | unde
     : undefined;
 }
 
+function pickCategory(value: unknown): CategoryFilter | undefined {
+  if (value === "none") return "none";
+  return typeof value === "string" && /^\d+$/.test(value) ? Number(value) : undefined;
+}
+
 export default async function LibraryPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const q = typeof params.q === "string" ? params.q.trim() : "";
   const platform = pick<Platform>(params.platform, PLATFORMS);
+  const category = pickCategory(params.category);
   const sort = pick<Sort>(params.sort, SORTS) ?? "playtime";
   const view = params.view === "list" ? "list" : "grid";
 
-  const games = listGames({ q: q || undefined, platform, sort });
+  const games = listGames({ q: q || undefined, platform, category, sort });
+  const categories = listCategories().map(({ id, name }) => ({ id, name }));
   const totalMinutes = games.reduce((sum, g) => sum + g.playtimeMinutes, 0);
-  const libraryEmpty = games.length === 0 && !q && !platform;
+  const libraryEmpty = games.length === 0 && !q && !platform && category === undefined;
 
   if (libraryEmpty) {
     return (
@@ -48,9 +55,9 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
       {games.length === 0 ? (
         <p className="py-20 text-center text-sm text-muted-foreground">没有符合条件的游戏</p>
       ) : view === "list" ? (
-        <GameList games={games} />
+        <GameList games={games} categories={categories} />
       ) : (
-        <GameGrid games={games} />
+        <GameGrid games={games} categories={categories} />
       )}
     </div>
   );

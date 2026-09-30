@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Clock, ExternalLink, History, Trophy } from "lucide-react";
+import { ArrowLeft, Clock, ExternalLink, History, Tag, Trophy } from "lucide-react";
 import { AchievementList } from "@/components/game/achievement-list";
 import { GameCover } from "@/components/game-cover";
+import { CategoryPicker } from "@/components/library/category-picker";
 import { PlatformBadge } from "@/components/platform-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { bannerSources, coverSources } from "@/lib/covers";
 import { completionPercent, formatDate, formatDateTime, formatPlaytime } from "@/lib/format";
-import { getGame } from "@/lib/queries";
+import { getGame, getGameCategoryIds, listCategories } from "@/lib/queries";
 
 function storeUrl(platform: string, platformGameId: string, title: string) {
   if (platform === "steam") return `https://store.steampowered.com/app/${platformGameId}`;
@@ -31,6 +33,9 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
   if (!data) notFound();
   const { game, achievements } = data;
   const pct = completionPercent(game.achievementsUnlocked, game.achievementsTotal);
+  const categories = listCategories().map(({ id, name }) => ({ id, name }));
+  const categoryIds = getGameCategoryIds(game.id);
+  const assigned = categories.filter((c) => categoryIds.includes(c.id));
 
   return (
     <div className="space-y-8">
@@ -58,6 +63,19 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
             <div className="space-y-2">
               <PlatformBadge platform={game.platform} />
               <h1 className="text-3xl font-semibold tracking-tight">{game.title}</h1>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {assigned.map((c) => (
+                  <Badge key={c.id} variant="secondary" asChild>
+                    <Link href={`/?category=${c.id}`}>{c.name}</Link>
+                  </Badge>
+                ))}
+                <CategoryPicker gameId={game.id} categories={categories} selectedIds={categoryIds}>
+                  <Button variant="ghost" size="xs" className="text-muted-foreground">
+                    <Tag />
+                    {assigned.length > 0 ? "编辑分类" : "添加分类"}
+                  </Button>
+                </CategoryPicker>
+              </div>
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
               <Stat icon={Clock} label="游玩时长" value={formatPlaytime(game.playtimeMinutes)} />

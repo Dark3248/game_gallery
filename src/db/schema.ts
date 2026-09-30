@@ -1,6 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -64,6 +66,32 @@ export const achievements = sqliteTable(
   (t) => [uniqueIndex("achievements_game_api_idx").on(t.gameId, t.apiName)],
 );
 
+export const categories = sqliteTable(
+  "categories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [uniqueIndex("categories_name_idx").on(sql`lower(${t.name})`)],
+);
+
+export const gameCategories = sqliteTable(
+  "game_categories",
+  {
+    gameId: integer("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    categoryId: integer("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.gameId, t.categoryId] }),
+    index("game_categories_category_idx").on(t.categoryId),
+  ],
+);
+
 export const SYNC_STATUSES = ["running", "success", "error"] as const;
 export type SyncStatus = (typeof SYNC_STATUSES)[number];
 
@@ -86,4 +114,5 @@ export const syncRuns = sqliteTable(
 export type Account = typeof accounts.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type Achievement = typeof achievements.$inferSelect;
+export type Category = typeof categories.$inferSelect;
 export type SyncRun = typeof syncRuns.$inferSelect;
